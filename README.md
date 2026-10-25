@@ -1,95 +1,83 @@
-# Cane Guide
+# SBUHacks26: Scout
 
-An iPhone app that mounts on a white cane, uses the LiDAR depth sensor to find obstacles ahead, and guides the user by voice and vibration. It can also give walking directions with Apple Maps.
+Chest-mounted iPhone LiDAR app that guides blind and low-vision walkers with spoken cues and vibration. It finds the clearest walking direction through obstacles, warns about drop-offs and head-height objects, and can optionally lean that direction toward a walking route.
 
-**It supplements the cane. It does not replace it.** It cannot detect stairs going down, drop-offs, or glass reliably.
+The design, constraints, and phase gates are in [docs/FOUNDATION_PROMPT.md](docs/FOUNDATION_PROMPT.md). Read it first.
 
-## What you need
+## Run it
 
-- An iPhone with LiDAR: iPhone 12 Pro or newer **Pro** model.
-- A Mac running a recent macOS with **Xcode 16 or newer** (free from the Mac App Store).
-- A USB cable for the phone.
-- A free Apple ID. No paid developer account and no App Store.
+1. Open `Scout.xcodeproj` in Xcode 16 or later.
+2. Select the **Scout** target, then **Signing & Capabilities**, and pick your team. Change the bundle id if it clashes.
+3. Run on an iPhone 12 Pro or later (13 Pro and 17 Pro are the test phones). The simulator has no LiDAR, so only the unit tests run there.
+4. Run the unit tests with Cmd-U. They cover geometry, the gap planner, the cue arbiter, the frame codec, and a synthetic end-to-end pipeline.
 
-## Put it on the phone (about 10 minutes)
+Without generated clips the app speaks every cue with on-device speech, which is fine for development. For the demo, generate the ElevenLabs clips (see [tools/generate_cues](tools/generate_cues/README.md)) and rebuild. Rerun it after pulling new phrases (for example `stairs_up` and `stairs_down`).
 
-1. Open `CaneGuide.xcodeproj` in Xcode.
-2. Click the blue **CaneGuide** project at the top left, then **Signing & Capabilities**.
-   - **Team:** choose your Apple ID. If none is listed, use *Add an Account…*
-   - **Bundle Identifier:** change `com.example.caneguide` to something unique, such as `com.yourname.caneguide`.
-3. Plug in the iPhone and unlock it. Tap **Trust** if it asks.
-4. On the iPhone, turn on **Settings → Privacy & Security → Developer Mode** and restart when asked.
-5. In Xcode, pick the iPhone in the device menu at the top and press **Run** (▶).
-6. The first time, the iPhone blocks the app. Go to **Settings → General → VPN & Device Management**, tap your Apple ID, and tap **Trust**. Then press Run again.
-7. Allow camera, location and motion access when the app asks.
+### Obstacle names with Gemini (optional)
 
-An app installed with a free Apple ID stops opening after 7 days. Press Run again to reinstall it.
+Settings > Name obstacles names doors, furniture, and street objects on the phone with no key. To name other things too, paste a Gemini key under it, or add `GEMINI_API_KEY` to `Scout/Secrets.plist`. Scout then sends one camera photo to Google when an unnamed obstacle is more than 2.5 m ahead. Use a key with a low spending limit; anyone with the app can extract it.
+
+### AI voice for directions (optional)
+
+Spoken directions and search results can use live ElevenLabs. Either paste a key in the app (Settings, AI voice for directions; it is saved on the phone), or copy [docs/Secrets.example.plist](docs/Secrets.example.plist) to `Scout/Secrets.plist`, fill in the key, and build:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>ELEVENLABS_API_KEY</key>
+    <string>your key</string>
+    <key>ELEVENLABS_VOICE_ID</key>
+    <string>21m00Tcm4TlvDq8ikWAM</string>
+</dict>
+</plist>
+```
+
+`Secrets.plist` is gitignored; never commit it. Anyone with the built app can extract the key, so give it a low spending limit. If no key is set or the network takes more than 1.5 seconds, the iPhone voice reads the text instead. Stop, Left, Right, Step down, and Stairs always use the bundled clips.
 
 ## Using it
 
-- Mount the phone on the cane at about chest height with the **back camera facing forward** and the screen facing you. A bike phone holder and zip ties work.
-- Tap **Start**. You'll hear "Cane Guide on."
-- Spoken cues: "Path clear", "Obstacle ahead. Go left/right", "Stop. Obstacle 0.8 meters ahead", "Stop. Path blocked", and "Person ahead, 2.0 meters."
-- Vibration gets faster and stronger as an obstacle gets closer (under 3 m).
-- For directions: tap **Ask for directions** and say something like "take me to the library." It stops listening when you pause, finds a walking route, draws it on the map, and reads out each turn. You can also type a place and tap **Go**.
-- Turn on **Show distances** to see the left, ahead and right readings while tuning.
+- **Mount** the phone portrait on the chest, screen facing in, rear camera facing out, tilted down 15 to 25 degrees so the floor about a meter ahead is in view. Keep the bottom speaker uncovered.
+- Press **Start**, then stand still and face forward for two seconds while it finds the floor. It says "Ready."
+- **Just walk** (passive) guides around obstacles with no destination, and leans back toward the direction you were walking once you are past something. **Go somewhere** (guided) adds Apple Maps walking directions: tap the microphone and say a place, or type it, then pick a result. The top result is read aloud.
+- **Settings** (gear icon) has how much it talks, cue volume, vibration strength, the iPhone voice and speed, and the AI voice. Every change plays an example. **Help** (question mark) plays each cue with what it means.
+- **Name obstacles** (Settings, off by default while it is tested) says what is in the way as a short, kind sentence: "There's a door just ahead, keep a little to your left.", "Stop. There's a person right in front of you." Normal and Chatty name everything in the path, from people and doors to desks and chairs, and point out open doorways ("There's a doorway a little to your right."). Chatty also says "A person is just off to your left." for someone beside the path. Steering with nothing named stays one word ("Left."), and Stop always comes first on its own, because every extra word is walking distance. Each object is named once (again after 10 s or if it leaves the path and comes back). People and dogs come from Apple's on-device Vision detectors, furniture and street objects from the bundled detector, and poles and doorways from the depth grid. A name is only given to something LiDAR already sees, so Stop never waits for it and a wrong or missed name cannot hide an obstacle.
+- **Open camera view after Start** opens the live detection view on its own full screen once guidance starts, with the route direction in blue and a large Stop bar at the bottom. "Hide camera" goes back home while guidance keeps running.
+- The screen dims to save battery while guiding. Do not press the side button: iOS stops the camera when the app leaves the foreground, and the app says "Guidance stopped."
+- Siri (open the app once after installing): "Start Scout", "Stop Scout", "Scout passive mode", "Start navigation with Scout" (Siri asks where to), "Stop navigation in Scout" (obstacle warnings stay on), "Scout where am I going", "Scout quieter", "Scout more detail".
 
-## Gemini for spoken requests (optional)
+What the cues mean: "Stop" with a long buzz means something is right ahead; "Step down" means a curb or single step down; "Stairs going up/down ahead" with a double tap means three or more matching steps, seen for at least 0.6 s by both halves of the walking path; "Left" / "Right" / "Slight left" / "Slight right" point at the clearest gap. Head-height obstacles are shown in the debug views but not spoken (too many false alarms on a chest mount). The repeating tap speeds up as the nearest obstacle gets closer. Silence means the way is clear.
 
-Get a free key at https://aistudio.google.com/apikey and paste it into `geminiAPIKey` in `CaneGuide/App/Config.swift`. Gemini turns what you said into a place to search for, then Apple Maps finds the walking route. Without a key, or if Gemini fails, the app sends what it heard straight to Apple Maps search. Speech recognition itself is Apple's and runs on the phone. Only the transcript of your request goes to Google, not audio or location.
+## Debugging
 
-## Optional ElevenLabs voice for directions
+Tap **Debug view**. Mirror the phone to a Mac with AirPlay so a teammate can watch while someone walks, or use iOS screen recording.
 
-Paste an API key into `CaneGuide/App/Config.swift`. Obstacle warnings always use the built-in voice because it's instant and works offline. If ElevenLabs fails, directions fall back to the built-in voice.
+| Tab | Shows |
+| --- | --- |
+| Camera | Color or depth image with every sampled point colored by class (floor green, obstacle red, drop purple, overhead orange, low confidence gray), the walking corridor, the chosen heading (yellow), the route direction (blue dashes), and the next turn. With Name obstacles on: the latest detector boxes (orange for hazards, mint for furniture, gray dashed when the depth inside missed) and confirmed names as tags (yellow for the one being spoken about). |
+| Map | Top-down occupancy grid (now remembered for 8 seconds, so walls beside you stay known) with the 16 candidate headings and the route or walking direction in blue, and a side view with the class thresholds and the stair profile in cyan. |
+| Planner | Ten seconds of heading (raw and smoothed), urgency, and nearest distance. Left-right flipping shows up here. |
+| Cues | Every cue considered, what was spoken, queued, expired, or dropped, and latency from the triggering frame. Buttons fire any cue by hand. |
+| Setup | Record and replay, and every tuning value, live. |
 
-## Tuning after a test walk
+**Record and replay.** Record a walk from Setup. Recordings live in the app's Documents folder (Finder or the Files app can copy them off). Replay runs the recording through the same pipeline, and the HUD shows a planner hash: two replays of one recording with the same tuning must show the same hash. Use recordings to reproduce a tester's problem without asking them to walk again.
 
-All distances and timings live in `CaneGuide/Core/Tuning.swift`. Common changes:
+## Status and known limits
 
-- Too many false "stop"s from the floor: raise `floorClearance` or `defaultCameraHeight`.
-- The cane itself triggers warnings: raise `minForward`.
-- Warnings come too late: raise `stopDistance` and `veerDistance`.
-- Too chatty: raise `minAnnounceInterval`.
+- **Not yet compiled or run on a device.** The code was written without a Swift toolchain, so expect a handful of compile fixes on first build. The planner tests were checked with a numeric simulation; nothing has been measured on a phone.
+- None of the section 9 gates have been run. Work through them in order on a device, starting with 30 fps on the 13 Pro.
+- The portrait field of view is about plus or minus 24 degrees horizontally, so obstacles more than about half a meter to the side at one meter are not seen until the user turns toward them.
+- The LiDAR cannot see the floor right under the user; the tilt-down mount and the inferred drop-off (floor that suddenly disappears) cover most of that.
+- Changing the `Tuning` struct's fields resets saved tuning to defaults on next launch.
+- Obstacle names: people and dogs (Apple's detectors), doors, furniture, vehicles, and street objects (bundled YOLOv8n Open Images model, AGPL-3.0), and poles (depth). With a Gemini key in Settings or `Secrets.plist`, Gemini names other obstacles more than 2.5 m away; that sends a camera photo to Google. None of this has run on a phone. The pole rule was checked in a ray-cast simulation, not on a phone, and a person standing side-on can look like a pole to it; Vision overrides it wherever it sees something. The detector assumes the phone is upright in portrait, as the camera view does.
 
-## How it works
-
-```
-LiDAR depth (15 Hz) ─┐
-ARKit camera pose  ──┼─> ObstacleAnalyzer ─> GuidanceEngine ─> voice + vibration
-Gyroscope ───────────┘   (left/ahead/right     (stop / go left /
-                          nearest distance)     go right / clear)
-Your voice ─> Apple speech ─> Gemini ─> place name
-GPS + Apple Maps ───> RoutePlanner ───> map on screen + voice (ElevenLabs or built-in)
-```
-
-- Each depth pixel is projected into gravity-aligned 3D space. Points near the floor are ignored, and the rest are sorted into left, ahead and right zones of a 2 m wide corridor.
-- Zones follow the averaged walking direction, so sweeping the cane scans across them instead of rotating them.
-- Within a zone, the nearest *cluster* of depth points wins, so a thin pole in front of a far wall is still caught while stray noisy pixels are ignored.
-- Gap-seeking (inspired by [Shepherd](https://github.com/tonywangs/shepherd)): the corridor is split into 7 thin strips, and "go left/right" points toward the clearest opening wide enough to walk through, averaged over a few frames.
-- Apple Vision looks for people a few times a second; LiDAR measures how far away they are.
-- Raw LiDAR depth at 30 Hz. ARKit's smoothed depth blends frames together, which smears obstacles while the cane sweeps.
-- A cue has to hold for two frames before it counts. Warnings have hysteresis and rate limits so the app doesn't chatter.
-- Obstacle warnings always interrupt directions.
-
-## Folders
-
-| Folder | What's in it |
-|---|---|
-| `CaneGuide/Core` | Pure logic: obstacle detection, guidance rules, haptic timing, tuning. No iPhone frameworks, so it can be tested on any Mac. |
-| `CaneGuide/Sensing` | LiDAR depth (ARKit) and gyroscope (CoreMotion). |
-| `CaneGuide/Output` | Voice and vibration. |
-| `CaneGuide/Navigation` | Apple Maps walking routes and the ElevenLabs voice. |
-| `CaneGuide/App` | App entry point, screen, and wiring. |
-| `Checks` | Logic tests for `Core`. |
-
-## Logic tests (no Xcode needed)
+## Layout
 
 ```
-./run-checks.sh
+Scout/            App sources (App, Capture, Perception, Feedback, Navigation, Identification, Debug)
+ScoutTests/       Unit tests
+tools/generate_cues/  ElevenLabs clip generator for the bundled cues
+reference/shepherd/   Read-only reference from Shepherd; not in the build
+docs/                 Foundation prompt
 ```
-
-This compiles `CaneGuide/Core` with the Mac's Swift compiler and runs 52 checks on simulated depth frames and guidance sequences.
-
-## Safety for testing
-
-Test only with a sighted spotter walking beside the user. Start indoors, in a hallway with known obstacles, before trying outside.
